@@ -246,7 +246,8 @@ static void settings_init(void) {
     settings.lru_crawler_sleep = 100;
     settings.lru_crawler_tocrawl = 0;
     settings.lru_maintainer_thread = false;
-    settings.lru_segmented = true;
+	// EMB_DEBUG we changed this to false
+    settings.lru_segmented = false;
     settings.hot_lru_pct = 20;
     settings.warm_lru_pct = 40;
     settings.hot_max_factor = 0.2;

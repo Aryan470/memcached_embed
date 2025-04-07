@@ -30,7 +30,8 @@ memcached_SOURCES = memcached.c memcached.h \
                     authfile.c authfile.h \
                     restart.c restart.h \
                     proto_text.c proto_text.h \
-                    proto_bin.c proto_bin.h
+                    proto_bin.c proto_bin.h \
+                    embeddings.c embeddings.h
 
 if BUILD_SOLARIS_PRIVS
 memcached_SOURCES += solaris_priv.c
@@ -90,7 +91,8 @@ memcached_CPPFLAGS = -DNDEBUG
 memcached_debug_LDADD = @PROFILER_LDFLAGS@
 memcached_debug_CFLAGS = @PROFILER_FLAGS@
 
-memcached_LDADD =
+memcached_LDADD = -lm
+memcached_debug_LDADD += -lm
 memcached_LDFLAGS =
 memcached_debug_LDFLAGS =
 memcached_DEPENDENCIES =

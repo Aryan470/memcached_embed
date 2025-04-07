@@ -3,6 +3,7 @@
 #include "bipbuffer.h"
 #include "storage.h"
 #include "slabs_mover.h"
+#include "embeddings.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/resource.h>
@@ -168,7 +169,7 @@ item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
      * occasional OOM's, rather than internally work around them.
      * This also gives one fewer code path for slab alloc/free
      */
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < 25; i++) {
         /* Try to reclaim memory first */
         if (!settings.lru_segmented) {
             lru_pull_tail(id, COLD_LRU, 0, 0, 0, NULL);
@@ -176,16 +177,28 @@ item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
         it = slabs_alloc(id, 0);
 
         if (it == NULL) {
-            // We send '0' in for "total_bytes" as this routine is always
-            // pulling to evict, or forcing HOT -> COLD migration.
-            // As of this writing, total_bytes isn't at all used with COLD_LRU.
-            if (lru_pull_tail(id, COLD_LRU, 0, LRU_PULL_EVICT, 0, NULL) <= 0) {
-                if (settings.lru_segmented) {
-                    lru_pull_tail(id, HOT_LRU, 0, 0, 0, NULL);
-                } else {
-                    break;
-                }
-            }
+			// EMB_DEBUG: modifying this to use our eviction policy
+			if (EMB_DEBUG_PRINT) {
+				fprintf(stderr, "[EMB_DEBUG] looking for eviction candidates\n");
+			}
+
+			if (USE_EMBEDDING_EVICT) {
+				emb_evict_candidate();
+				if (settings.slab_automove == 2) {
+					slabs_reassign(settings.slab_rebal, -1, id, SLABS_REASSIGN_ALLOW_EVICTIONS);
+				}
+			} else {
+				// We send '0' in for "total_bytes" as this routine is always
+				// pulling to evict, or forcing HOT -> COLD migration.
+				// As of this writing, total_bytes isn't at all used with COLD_LRU.
+				if (lru_pull_tail(id, COLD_LRU, 0, LRU_PULL_EVICT, 0, NULL) <= 0) {
+					if (settings.lru_segmented) {
+						lru_pull_tail(id, HOT_LRU, 0, 0, 0, NULL);
+					} else {
+						break;
+					}
+				}
+			}
         } else {
             break;
         }
@@ -343,6 +356,10 @@ item *do_item_alloc(const char *key, const size_t nkey, const client_flags_t fla
         chunk->orig_clsid = hdr_id;
     }
     it->h_next = 0;
+
+	if (USE_EMBEDDING_EVICT) {
+		emb_update_object(it);
+	}
 
     return it;
 }
@@ -506,6 +523,12 @@ int do_item_link(item *it, const uint32_t hv, const uint64_t cas) {
 
 void do_item_unlink(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
+
+	// EMB_DEBUG
+	if (USE_EMBEDDING_EVICT) {
+		emb_remove_item(it, hv);
+	}
+
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
         STATS_LOCK();
@@ -515,6 +538,9 @@ void do_item_unlink(item *it, const uint32_t hv) {
         item_stats_sizes_remove(it);
         assoc_delete(ITEM_key(it), it->nkey, hv);
         item_unlink_q(it);
+		if (EMB_DEBUG_PRINT) {
+			fprintf(stderr, "[EMB_DEBUG] in do_item_unlink, calling do_item_remove\n");
+		}
         do_item_remove(it);
     }
 }
@@ -522,6 +548,12 @@ void do_item_unlink(item *it, const uint32_t hv) {
 /* FIXME: Is it necessary to keep this copy/pasted code? */
 void do_item_unlink_nolock(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
+
+	// EMB_DEBUG
+	if (USE_EMBEDDING_EVICT) {
+		emb_remove_item(it, hv);
+	}
+
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
         STATS_LOCK();
@@ -542,12 +574,18 @@ void do_item_remove(item *it) {
 
     if (refcount_decr(it) == 0) {
         item_free(it);
-    }
+    } else {
+	}
 }
 
 /* Bump the last accessed time, or relink if we're in compat mode */
 void do_item_update(item *it) {
     MEMCACHED_ITEM_UPDATE(ITEM_key(it), it->nkey, it->nbytes);
+	// TODO: fix this to use proper printing the string is not null terminated
+	//fprintf(stderr, "[EMB_DEBUG] accessing object %s\n", ITEM_key(it));
+	if (USE_EMBEDDING_EVICT) {
+		emb_update_object(it);
+	}
 
     /* Hits to COLD_LRU immediately move to WARM. */
     if (settings.lru_segmented) {
