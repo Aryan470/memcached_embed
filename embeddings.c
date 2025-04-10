@@ -54,7 +54,7 @@ embedding_map_slot* emb_map_lookup(item* it, uint32_t hv) {
 		curr_slot = curr_slot->next;
 	}
 	if (EMB_DEBUG_PRINT) {
-		fprintf(stderr, "[EMB_DEBUG] looking up item ptr %x hv %x result %x\n", it, hv, curr_slot);
+		fprintf(stderr, "[EMB_DEBUG] looking up item ptr %p hv %x result %p\n", (void*) it, hv, (void*) curr_slot);
 	}
 	return curr_slot;
 }
@@ -124,8 +124,15 @@ bool emb_map_make_entry(item* it, uint32_t hv) {
 
 void emb_map_delete_entry(item* it, uint32_t hv) {
 	// remove from the map
-	embedding_map_slot* slot = emb_map_lookup(it, hv);
-	if (slot == NULL || slot->present) {
+	embedding_map_slot* curr_slot = emb_hashmap[hv % EMB_MAP_SIZE];
+	if (curr_slot != NULL && curr_slot->it == it) {
+		emb_hashmap[hv % EMB_MAP_SIZE] = curr_slot->next;
+		free(curr_slot);
+		return;
+	}
+
+	if (curr_slot == NULL) {
+		// problem, we are trying to delete something that's not there
 		if (EMB_DEBUG_PRINT) {
 			fprintf(stderr, "EMB_ERROR: trying to delete nonexistent item\n");
 		}
@@ -133,7 +140,25 @@ void emb_map_delete_entry(item* it, uint32_t hv) {
 		return;
 	}
 
-	slot->present = false;
+	while (curr_slot->next != NULL && curr_slot->next->it != it) {
+		curr_slot = curr_slot->next;
+	}
+
+	// at this point, if next is null then it DNE
+	if (curr_slot->next == NULL) {
+		// problem, we are trying to delete something that's not there
+		if (EMB_DEBUG_PRINT) {
+			fprintf(stderr, "EMB_ERROR: trying to delete nonexistent item\n");
+		}
+		abort();
+		return;
+	}
+
+	assert(curr_slot->next->it == it);
+	// replace curr.next with curr.next.next
+	embedding_map_slot* next_slot = curr_slot->next->next;
+	free(curr_slot->next);
+	curr_slot->next = next_slot;
 }
 
 
@@ -351,5 +376,5 @@ void emb_remove_item(item* it, uint32_t hv) {
 	emb_valid_items_size--;
 
 	// now let's remove it from the hashmap
-	slot->present = false;
+	emb_map_delete_entry(it, hv);
 }
