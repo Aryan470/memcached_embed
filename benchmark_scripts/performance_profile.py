@@ -66,7 +66,7 @@ def main():
 	# ./multiproc_exp -H 127.0.0.1 -p 11211 -n {num_cli_work} -t trace -N {policy}_{num_cli}_clients_{num_work}_workers -l logs
 
 	for num_server_workers in [1, 2, 4, 8, 16]:
-		for num_client_workers in [1, 2, 4, 8, 16]:
+		for num_client_workers in [1, 2, 4, 8, 16, 32, 64, 128, 256]:
 			for executable in ["LRU", "EMB"]:
 				run_experiment(executable, num_server_workers, num_client_workers)
 
