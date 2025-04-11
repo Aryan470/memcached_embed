@@ -1,4 +1,5 @@
 import time
+import sys
 import string
 import socket
 
@@ -80,12 +81,14 @@ def test_eviction(sock):
 	print(f"HIT RATE: {num_hits/num_accesses*100:.2f}%")
 
 def run_trace(cli):
+	start_time = time.time()
 	num_accesses = 0
 	num_hits = 0
 	curr_hits = 0
 	trace_fname = "/users/aryankh/wiki_cache_00.trace"
 	print(f"running experiment with {trace_fname}")
 	req_num = 1
+	# each second, store the throughput and avg latency in that last second
 	with open(trace_fname) as trace_file:
 		# for each (timestamp, obj_id, obj_size, latency):
 		for line in trace_file:
@@ -116,12 +119,9 @@ def debug_print(text):
 		print(text)
 
 def main():
+	port_num = int(sys.argv[1])
 	host = '127.0.0.1'
-	port = 11211
-	#sock = socket.create_connection((host, port))
-	#run_trace(sock)
-	#sock.close()
-	cli = bmemcached.Client(("127.0.0.1:11211"))
+	cli = bmemcached.Client((f"{host}:{port_num}"))
 	run_trace(cli)
 	cli.close()
 

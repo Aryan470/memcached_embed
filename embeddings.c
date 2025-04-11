@@ -4,6 +4,8 @@
 #include "storage.h"
 #include "embeddings.h"
 
+pthread_mutex_t emb_lock = PTHREAD_MUTEX_INITIALIZER;
+
 #define EMBEDDING_DIM 16
 typedef struct {
 	float vec[EMBEDDING_DIM];
@@ -223,6 +225,9 @@ float emb_compute_obj_similarity(embedding* obj_emb) {
 
 // called from user command path when objects are accessed
 void emb_update_object(item* it) {
+	pthread_mutex_lock(&emb_lock);
+	refcount_incr(it);
+
 	if (EMB_DEBUG_PRINT) {
 		fprintf(stderr, "[EMBDEBUG] updating key=%.*s\n", it->nkey, ITEM_key(it));
 	}
@@ -256,7 +261,8 @@ void emb_update_object(item* it) {
 	// update ring buffer and rolling avg
 	emb_update_rolling_avg(obj_emb);
 
-	//fprintf(stderr, "[EMBDEBUG] updated key=%.*s vec=%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\n", it->nkey, ITEM_key(it), obj_emb->vec[0], obj_emb->vec[1], obj_emb->vec[2], obj_emb->vec[3], obj_emb->vec[4], obj_emb->vec[5], obj_emb->vec[6], obj_emb->vec[7], obj_emb->vec[8], obj_emb->vec[9], obj_emb->vec[10], obj_emb->vec[11], obj_emb->vec[12], obj_emb->vec[13], obj_emb->vec[14], obj_emb->vec[15]);
+	refcount_decr(it);
+	pthread_mutex_unlock(&emb_lock);
 }
 
 void emb_query_embedding(item* it) {
@@ -277,6 +283,7 @@ item* emb_valid_items[EMB_MAP_SIZE];
 uint32_t emb_valid_items_size = 0;
 
 uint32_t add_valid_item(item* it) {
+	refcount_incr(it);
 	// increase size by one
 	if (emb_valid_items_size == EMB_MAP_SIZE) {
 		if (EMB_DEBUG_PRINT) {
@@ -292,6 +299,7 @@ uint32_t add_valid_item(item* it) {
 }
 
 bool emb_evict_candidate() {
+	pthread_mutex_lock(&emb_lock);
 	if (EMB_DEBUG_PRINT) {
 		fprintf(stderr, "[EMBDEBUG] searching for eviction candidate\n");
 	}
@@ -299,6 +307,7 @@ bool emb_evict_candidate() {
 		if (EMB_DEBUG_PRINT) {
 			fprintf(stderr, "[EMBDEBUG] no valid items\n");
 		}
+		pthread_mutex_unlock(&emb_lock);
 		return false;
 	}
 	// randomly sample objects from the sampling pool
@@ -332,9 +341,10 @@ bool emb_evict_candidate() {
 		fprintf(stderr, "[EMBDEBUG] evicting key=%.*s, freeing %lu bytes\n", least_similar->nkey, ITEM_key(least_similar), ITEM_ntotal(least_similar));
 	}
 
+	pthread_mutex_unlock(&emb_lock);
 	// remove the least similar one: do_item_unlink()
-	LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EVICTION, least_similar);
-	STORAGE_delete(ext_storage, least_similar);
+	// LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EVICTION, least_similar);
+	// STORAGE_delete(ext_storage, least_similar);
 	do_item_unlink(least_similar, least_similar_hash);
 	// ^this will call emb_remove_item
 
@@ -343,6 +353,7 @@ bool emb_evict_candidate() {
 }
 
 void emb_remove_item(item* it, uint32_t hv) {
+	pthread_mutex_lock(&emb_lock);
 	if (EMB_DEBUG_PRINT) {
 		fprintf(stderr, "[EMBDEBUG] removing item key=%.*s\n", it->nkey, ITEM_key(it));
 	}
@@ -350,6 +361,7 @@ void emb_remove_item(item* it, uint32_t hv) {
 	embedding_map_slot* slot = emb_map_lookup(it, hv);
 	if (slot == NULL || !slot->present) {
 		// we don't know about this item, so it's okay
+		pthread_mutex_unlock(&emb_lock);
 		return;
 	}
 	uint32_t sample_pool_idx = slot->sample_pool_idx;
@@ -377,4 +389,6 @@ void emb_remove_item(item* it, uint32_t hv) {
 
 	// now let's remove it from the hashmap
 	emb_map_delete_entry(it, hv);
+	refcount_decr(it);
+	pthread_mutex_unlock(&emb_lock);
 }
