@@ -18,6 +18,7 @@
 #include "authfile.h"
 #include "restart.h"
 #include "slabs_mover.h"
+#include "embeddings.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -5913,6 +5914,9 @@ int main (int argc, char **argv) {
     }
 
     /* initialize other stuff */
+	if (USE_EMBEDDING_EVICT) {
+		embeddings_init();
+	}
     stats_init();
     logger_init();
     logger_create(); // main process logger

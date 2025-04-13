@@ -1,6 +1,7 @@
 #ifndef EMBEDDING_H
 #define EMBEDDING_H
 
+void embeddings_init(void);
 // indicate that an object was accessed
 void emb_update_object(item* it);
 void emb_query_embedding(item* it);
