@@ -527,6 +527,7 @@ void do_item_unlink(item *it, const uint32_t hv) {
 	// EMB_DEBUG
 	if (USE_EMBEDDING_EVICT) {
 		emb_remove_item(it, hv);
+		refcount_decr(it);
 	}
 
     if ((it->it_flags & ITEM_LINKED) != 0) {

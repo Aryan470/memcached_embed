@@ -491,9 +491,8 @@ bool emb_evict_candidate() {
 	// remove the least similar one: do_item_unlink()
 	// LOGGER_LOG(NULL, LOG_EVICTIONS, LOGGER_EVICTION, least_similar);
 	// STORAGE_delete(ext_storage, least_similar);
-	refcount_decr(least_similar);
 	do_item_unlink(least_similar, least_similar_hash);
-	// ^this will call emb_remove_item
+	// ^this will call emb_remove_item and decr our ref that we started
 
 	// we evicted something
 	if (EMB_API_DEBUG) fprintf(stderr, "[%ld] ENDING EVICT ITEM\n", syscall(SYS_gettid));
