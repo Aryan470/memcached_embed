@@ -172,7 +172,7 @@ item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
     for (i = 0; i < 25; i++) {
         /* Try to reclaim memory first */
         if (!settings.lru_segmented) {
-            lru_pull_tail(id, COLD_LRU, 0, 0, 0, NULL);
+            //lru_pull_tail(id, COLD_LRU, 0, 0, 0, NULL);
         }
         it = slabs_alloc(id, 0);
 
@@ -183,9 +183,15 @@ item *do_item_alloc_pull(const size_t ntotal, const unsigned int id) {
 			}
 
 			if (USE_EMBEDDING_EVICT) {
+
+				//pthread_mutex_lock(&lru_locks[id | COLD_LRU]);
+
 				emb_evict_candidate();
+
+				//pthread_mutex_unlock(&lru_locks[id | COLD_LRU]);
+
 				if (settings.slab_automove == 2) {
-					slabs_reassign(settings.slab_rebal, -1, id, SLABS_REASSIGN_ALLOW_EVICTIONS);
+					//slabs_reassign(settings.slab_rebal, -1, id, SLABS_REASSIGN_ALLOW_EVICTIONS);
 				}
 			} else {
 				// We send '0' in for "total_bytes" as this routine is always
@@ -358,18 +364,27 @@ item *do_item_alloc(const char *key, const size_t nkey, const client_flags_t fla
     it->h_next = 0;
 
 	if (USE_EMBEDDING_EVICT) {
-		emb_update_object(it);
+		//fprintf(stderr, "[%lu] UPDATE INVOKED FROM do_item_alloc\n", (unsigned long) pthread_self());
+		//emb_update_object(it);
 	}
 
     return it;
 }
 
 void item_free(item *it) {
+	if (USE_EMBEDDING_EVICT) {
+		//uint32_t hv = hash(ITEM_key(it), it->nkey);
+		//emb_remove_item(it, hv);
+		//fprintf(stderr, "freeing item\n");
+	}
+	//fprintf(stderr, "[%lu] FREEING item %p\n", (unsigned long) pthread_self(), (void*) it);
+
     unsigned int clsid;
     assert((it->it_flags & ITEM_LINKED) == 0);
     assert(it != heads[it->slabs_clsid]);
     assert(it != tails[it->slabs_clsid]);
     assert(it->refcount == 0);
+
 
     /* so slab size changer can tell later if item is already free or not */
     clsid = ITEM_clsid(it);
@@ -402,6 +417,9 @@ void do_item_link_fixup(item *it) {
     int ntotal = ITEM_ntotal(it);
     uint32_t hv = hash(ITEM_key(it), it->nkey);
     assoc_insert(it, hv);
+	if (USE_EMBEDDING_EVICT) {
+		emb_update_object(it);
+	}
 
     head = &heads[it->slabs_clsid];
     tail = &tails[it->slabs_clsid];
@@ -514,6 +532,9 @@ int do_item_link(item *it, const uint32_t hv, const uint64_t cas) {
     /* Allocate a new CAS ID on link. */
     ITEM_set_cas(it, cas);
     assoc_insert(it, hv);
+	if (USE_EMBEDDING_EVICT) {
+		emb_update_object(it);
+	}
     item_link_q(it);
     refcount_incr(it);
     item_stats_sizes_add(it);
@@ -524,23 +545,21 @@ int do_item_link(item *it, const uint32_t hv, const uint64_t cas) {
 void do_item_unlink(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
 
-	// EMB_DEBUG
-	if (USE_EMBEDDING_EVICT) {
-		emb_remove_item(it, hv);
-	}
 
     if ((it->it_flags & ITEM_LINKED) != 0) {
+
         it->it_flags &= ~ITEM_LINKED;
         STATS_LOCK();
         stats_state.curr_bytes -= ITEM_ntotal(it);
         stats_state.curr_items -= 1;
         STATS_UNLOCK();
         item_stats_sizes_remove(it);
+		// EMB_DEBUG
+		if (USE_EMBEDDING_EVICT) {
+			//emb_remove_item(it, hv);
+		}
         assoc_delete(ITEM_key(it), it->nkey, hv);
         item_unlink_q(it);
-		if (EMB_DEBUG_PRINT) {
-			fprintf(stderr, "[EMB_DEBUG] in do_item_unlink, calling do_item_remove\n");
-		}
         do_item_remove(it);
     }
 }
@@ -549,10 +568,6 @@ void do_item_unlink(item *it, const uint32_t hv) {
 void do_item_unlink_nolock(item *it, const uint32_t hv) {
     MEMCACHED_ITEM_UNLINK(ITEM_key(it), it->nkey, it->nbytes);
 
-	// EMB_DEBUG
-	if (USE_EMBEDDING_EVICT) {
-		emb_remove_item(it, hv);
-	}
 
     if ((it->it_flags & ITEM_LINKED) != 0) {
         it->it_flags &= ~ITEM_LINKED;
@@ -561,6 +576,10 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
         stats_state.curr_items -= 1;
         STATS_UNLOCK();
         item_stats_sizes_remove(it);
+		// EMB_DEBUG
+		if (USE_EMBEDDING_EVICT) {
+			//emb_remove_item(it, hv);
+		}
         assoc_delete(ITEM_key(it), it->nkey, hv);
         do_item_unlink_q(it);
         do_item_remove(it);
@@ -573,6 +592,9 @@ void do_item_remove(item *it) {
     assert(it->refcount > 0);
 
     if (refcount_decr(it) == 0) {
+		if (USE_EMBEDDING_EVICT) {
+			emb_remove_item(it, hash(ITEM_key(it), it->nkey));
+		}
         item_free(it);
     } else {
 	}
@@ -584,7 +606,11 @@ void do_item_update(item *it) {
 	// TODO: fix this to use proper printing the string is not null terminated
 	//fprintf(stderr, "[EMB_DEBUG] accessing object %s\n", ITEM_key(it));
 	if (USE_EMBEDDING_EVICT) {
-		emb_update_object(it);
+		if ((it->it_flags & ITEM_LINKED) != 0) {
+		//fprintf(stderr, "[%lu] UPDATE INVOKED FROM do_item_update\n", (unsigned long) pthread_self());
+			emb_update_object(it);
+		}
+		return;
 	}
 
     /* Hits to COLD_LRU immediately move to WARM. */

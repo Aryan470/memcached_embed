@@ -18,6 +18,7 @@
 #include "authfile.h"
 #include "restart.h"
 #include "slabs_mover.h"
+#include "embeddings.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -1184,6 +1185,7 @@ mc_resp* resp_finish(conn *c, mc_resp *resp) {
     mc_resp *next = resp->next;
     if (resp->item) {
         // TODO: cache hash value in resp obj?
+		//fprintf(stderr, "[%lu] calling item_remove from %s:%d\n", (unsigned long) pthread_self(), __FILE__, __LINE__);
         item_remove(resp->item);
         resp->item = NULL;
     }
@@ -5913,6 +5915,7 @@ int main (int argc, char **argv) {
     }
 
     /* initialize other stuff */
+	emb_init();
     stats_init();
     logger_init();
     logger_create(); // main process logger

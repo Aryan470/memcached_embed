@@ -87,13 +87,13 @@ memcached_SOURCES += tls.c tls.h
 endif
 
 memcached_debug_SOURCES = $(memcached_SOURCES)
-memcached_CPPFLAGS = -DNDEBUG
+memcached_CPPFLAGS = -DNDEBUG#-fsanitize=address
 memcached_debug_LDADD = @PROFILER_LDFLAGS@
 memcached_debug_CFLAGS = @PROFILER_FLAGS@
 
 memcached_LDADD = -lm
 memcached_debug_LDADD += -lm
-memcached_LDFLAGS =
+memcached_LDFLAGS = #-fsanitize=address
 memcached_debug_LDFLAGS =
 memcached_DEPENDENCIES =
 memcached_debug_DEPENDENCIES =

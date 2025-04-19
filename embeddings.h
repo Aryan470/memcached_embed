@@ -1,6 +1,12 @@
 #ifndef EMBEDDING_H
 #define EMBEDDING_H
 
+#define EMBEDDING_DIM 16
+typedef struct {
+	float vec[EMBEDDING_DIM];
+} embedding;
+
+void emb_init(void);
 // indicate that an object was accessed
 void emb_update_object(item* it);
 void emb_query_embedding(item* it);
