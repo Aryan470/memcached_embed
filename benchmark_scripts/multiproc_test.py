@@ -12,14 +12,14 @@ LOG_GRANULARITY = 1
 
 def set_key(cli, key, valsize):
 	val = b'x' * valsize
-	start_time = time.time()
+	start_time = time.perf_counter()
 	cli.set(key, (b'x' * valsize))
-	return time.time() - start_time
+	return time.perf_counter() - start_time
 
 def get_key(cli, key):
-	start_time = time.time()
+	start_time = time.perf_counter()
 	result = cli.get(key)
-	latency = time.time() - start_time
+	latency = time.perf_counter() - start_time
 	return (result is not None, latency)
 
 def parse_trace_file(trace_filepath, num_workers):
@@ -45,10 +45,10 @@ def run_trace(cli, workload, worker_id, num_workers, start_time, experiment_name
 
 	num_accesses = 0
 	num_hits = 0
-	curr_hits = 0
+	last_sec_hits = 0
 
 	# each second, store the throughput and avg latency in that last second
-	next_benchmark_second = time.time() + LOG_GRANULARITY
+	next_benchmark_second = time.perf_counter() + LOG_GRANULARITY
 
 	last_sec_req_processed = 0
 	last_sec_total_latency = 0
@@ -57,27 +57,33 @@ def run_trace(cli, workload, worker_id, num_workers, start_time, experiment_name
 
 	for obj_id, obj_size in workload:
 		# for each (timestamp, obj_id, obj_size, latency):
-		if time.time() >= next_benchmark_second:
+		if time.perf_counter() >= next_benchmark_second:
 			# report num req
 			last_sec_throughput = last_sec_req_processed / LOG_GRANULARITY
 			last_sec_latency = 1000 * last_sec_total_latency / last_sec_req_processed
 
-			overall_throughput = total_req_processed / (time.time() - start_time)
+			overall_throughput = total_req_processed / (time.perf_counter() - start_time)
 			overall_latency = 1000 * total_latency / total_req_processed
 			print(f"{worker_id}: last second latency={last_sec_latency:.5f}ms throughput={last_sec_throughput:.2f} req/s")
 			print(f"{worker_id}: overall latency={overall_latency:.5f}ms throughput={overall_throughput:.2f} req/s")
 
+			last_sec_hitrate = last_sec_hits / last_sec_req_processed
+			overall_hitrate = num_hits / total_req_processed
+
 			my_log.append({
-				"timestamp": time.time() - start_time,
+				"timestamp": time.perf_counter() - start_time,
 				"overall_latency": overall_latency,
 				"overall_throughput": overall_throughput,
 				"last_sec_latency": last_sec_latency,
 				"last_sec_throughput": last_sec_throughput,
+				"last_sec_hitrate": last_sec_hitrate,
+				"overall_hitrate": overall_hitrate,
 			})
 
 			last_sec_req_processed = 0
 			last_sec_total_latency = 0
-			next_benchmark_second = time.time() + LOG_GRANULARITY
+			last_sec_hits = 0
+			next_benchmark_second = time.perf_counter() + LOG_GRANULARITY
 
 
 		# get it from cache
@@ -86,11 +92,10 @@ def run_trace(cli, workload, worker_id, num_workers, start_time, experiment_name
 		# track hit rate
 		key_hit, req_latency = get_key(cli, obj_id)
 		if not key_hit:
-			# for now this is going to take some time to generate the strings, but for the purpose of hit rate measurement it's fine
 			req_latency += set_key(cli, obj_id, obj_size)
 		else:
 			num_hits += 1
-			curr_hits += 1
+			last_sec_hits += 1
 
 		num_accesses += 1
 		last_sec_req_processed += 1
@@ -99,9 +104,6 @@ def run_trace(cli, workload, worker_id, num_workers, start_time, experiment_name
 		total_latency += req_latency
 
 		PRINT_ITER = 10000
-		if num_accesses % PRINT_ITER == 0:
-			#print(f"{worker_id}: req {num_accesses}: CURR HIT RATE: {curr_hits/PRINT_ITER*100:.2f}% GLOBAL HIT RATE: {num_hits/num_accesses*100:.2f}%")
-			curr_hits = 0
 		#time.sleep(0.01)
 	
 	# now we finished experiment, commit logs to files
@@ -156,7 +158,7 @@ def main():
 
 	procs = []
 	clis = []
-	start_time = time.time()
+	start_time = time.perf_counter()
 	for worker_id in range(num_workers):
 		cli = bmemcached.Client((f"{host}:{port_num}"))
 		clis.append(cli)

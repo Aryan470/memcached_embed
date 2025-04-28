@@ -21,21 +21,23 @@ def process_log_files(log_dir):
 
         df = pd.read_csv(log_file)
         last_throughput = df['overall_throughput'].iloc[-1]
-        last_latency = df['overall_latency'].iloc[-1]
+        last_latency = df['overall_latency_ms'].iloc[-1]
         last_timestamp = df['timestamp'].iloc[-1]
+        last_hitrate = df['overall_hit_rate'].iloc[-1]
 
         key = (policy, num_server_threads)
-        raw_data[key][num_clients].append((last_throughput, last_latency, last_timestamp))
+        raw_data[key][num_clients].append((last_throughput, last_latency, last_timestamp, last_hitrate))
 
     processed_data = {}
     for key, client_dict in raw_data.items():
         data_points = []
         for num_clients, values in client_dict.items():
-            throughputs, latencies, runtimes = zip(*values)
+            throughputs, latencies, runtimes, hitrates = zip(*values)
             total_throughput = sum(throughputs)
             avg_latency = sum(latencies) / len(latencies)
             avg_runtime = sum(runtimes) / len(runtimes)
-            data_points.append((num_clients, total_throughput, avg_latency, avg_runtime))
+            avg_hitrate = sum(hitrates) / len(hitrates)
+            data_points.append((num_clients, total_throughput, avg_latency, avg_runtime, avg_hitrate))
         data_points.sort(key=lambda x: x[0])
         processed_data[key] = data_points
 
@@ -56,11 +58,11 @@ def plot_overlay(processed_data):
     colormap = cm.get_cmap('viridis')
     thread_to_color = {threads: colormap(norm(np.log2(threads))) for threads in server_thread_counts}
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-    titles = ["Total Throughput", "Average Latency", "Runtime"]
-    ylabels = ["Throughput (requests/sec)", "Latency (ms)", "Runtime (seconds)"]
+    fig, axes = plt.subplots(1, 4, figsize=(18, 6))
+    titles = ["Total Throughput", "Average Latency", "Runtime", "Hit Rate"]
+    ylabels = ["Throughput (requests/sec)", "Latency (ms)", "Runtime (seconds)", "Hit Rate (%)"]
 
-    for idx, metric_index in enumerate([1, 2, 3]):  # 1: throughput, 2: latency, 3: runtime
+    for idx, metric_index in enumerate([1, 2, 3, 4]):  # 1: throughput, 2: latency, 3: runtime, 4: hitrate
         ax = axes[idx]
         for (policy, num_server_threads), data in sorted(processed_data.items()):
             num_clients = [x[0] for x in data]
@@ -77,17 +79,17 @@ def plot_overlay(processed_data):
         ax.set_title(f"{titles[idx]} vs Number of Clients", fontsize=14)
         ax.set_xlabel("Number of Clients (log scale)", fontsize=12)
         ax.set_ylabel(ylabels[idx], fontsize=12)
-        ax.set_xscale('log', basex=2)  # Set X-axis to logarithmic scale
+        ax.set_xscale('log', base=2)  # Set X-axis to logarithmic scale
         ax.grid(True, linestyle='--', alpha=0.6)
         
         # Customize ticks for better readability
         ax.tick_params(axis='x', labelsize=10)
         ax.get_xaxis().set_major_formatter(plt.ScalarFormatter())
-        if idx == 2:  # only show legend once to avoid clutter
+        if idx == 3:  # only show legend once to avoid clutter
             ax.legend(fontsize=10, loc='best')
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig("benchmark_scripts/performance_plot.png")
 
 log_directory = "logs/"
 processed_data = process_log_files(log_directory)

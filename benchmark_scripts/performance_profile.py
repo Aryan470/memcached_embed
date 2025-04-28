@@ -1,16 +1,16 @@
 import subprocess
 TRACE_FILE = "/users/aryankh/wiki_cache_00.trace"
 LOG_FOLDER = "/users/aryankh/memcached_embed/logs/"
-CLIENT_SCRIPT = "/users/aryankh/memcached_embed/benchmark_scripts/multiproc_test.py"
+CLIENT_SCRIPT = "/users/aryankh/memcached_embed/benchmark_scripts/memcached_benchmark"
 
 EXECUTABLE_PATH = {
 	"EMB": "/users/aryankh/memcached_embed/memcached_emb",
 	"LRU": "/users/aryankh/memcached_embed/memcached_lru",
 }
 
-def launch_memcached(executable, num_server_workers, memory_limit=12, port=11211):
+def launch_memcached(executable, num_server_workers, memory_limit=512, port=11211):
 	return subprocess.Popen(
-		[EXECUTABLE_PATH[executable], "-p", str(port), "-m", str(memory_limit), "-t", str(num_server_workers)],
+		[EXECUTABLE_PATH[executable], "-p", str(port), "-m", str(memory_limit), "-t", str(num_server_workers), "-o", "no_lru_crawler", "-o", "no_lru_maintainer"],
 		stdout=subprocess.PIPE,
 		stderr=subprocess.PIPE,
 	)
@@ -26,7 +26,7 @@ def end_memcached(proc):
 
 def run_clients(num_client_workers, experiment_name):
 	return subprocess.run(
-		["python3", CLIENT_SCRIPT, "-H", "127.0.0.1", "-p", str(11211), "-n", str(num_client_workers), "-t", TRACE_FILE, "-N", experiment_name, "-l", LOG_FOLDER],
+		[CLIENT_SCRIPT, "-H", "127.0.0.1", "-p", str(11211), "-n", str(num_client_workers), "-t", TRACE_FILE, "-N", experiment_name, "-l", LOG_FOLDER],
 		capture_output=True,
 		text=True
 	)
@@ -65,8 +65,10 @@ def main():
 	# launch multiproc experiment with
 	# ./multiproc_exp -H 127.0.0.1 -p 11211 -n {num_cli_work} -t trace -N {policy}_{num_cli}_clients_{num_work}_workers -l logs
 
-	for num_server_workers in [1, 2, 4, 8, 16]:
-		for num_client_workers in [1, 2, 4, 8, 16, 32, 64, 128, 256]:
+	#for num_server_workers in [1, 2, 4, 8, 16]:
+		#for num_client_workers in [1, 2, 4, 8, 16, 32, 64, 128, 256]:
+	for num_server_workers in [2, 4]:
+		for num_client_workers in [1, 2, 4, 8]:
 			for executable in ["LRU", "EMB"]:
 				run_experiment(executable, num_server_workers, num_client_workers)
 
